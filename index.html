@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>産婦人科当直表</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <!--
@@ -47,10 +47,12 @@
 
     <div class="result-line" id="result-line" hidden></div>
     <div class="actions">
+      <button type="button" class="btn clear-btn" id="clear-btn" data-t="clearShift" hidden></button>
       <button type="button" class="btn primary" id="ai-btn" hidden></button>
       <button type="button" class="btn" id="pdf-btn" data-t="pdfMake"></button>
       <div class="pdf-box" id="pdf-box" hidden>
-        <a class="btn" id="pdf-open" target="_blank" rel="noopener" data-t="pdfOpen"></a>
+        <button type="button" class="btn" id="pdf-open" data-t="pdfOpen"></button>
+        <a class="btn" id="pdf-dl" data-t="pdfDownload" hidden></a>
         <button type="button" class="btn" id="pdf-share" data-t="pdfShare" hidden></button>
       </div>
       <div class="msg" id="pdf-msg"></div>
@@ -194,12 +196,24 @@
   </div>
 </div>
 
+<!-- 「シフトをクリア」の確認（v9） -->
+<div class="sheet-back" id="clear-back" hidden></div>
+<div class="modal" id="clear-box" role="dialog" aria-modal="true" aria-labelledby="clear-text" hidden>
+  <p id="clear-text" class="make-text"></p>
+  <div class="modal-col">
+    <button type="button" class="btn" id="clear-keep" data-t="clearKeep"></button>
+    <button type="button" class="btn danger" id="clear-all" data-t="clearAll"></button>
+    <button type="button" class="btn danger" id="clear-go" data-t="clearGo"></button>
+    <button type="button" class="btn sub" id="clear-cancel" data-t="cancel"></button>
+  </div>
+</div>
+
 <!-- 作成中 -->
 <div class="busy" id="busy" hidden>
   <div class="busy-box" role="status"><div class="spinner" aria-hidden="true"></div><p id="busy-text"></p></div>
 </div>
 
 <script src="config.js?v=2"></script>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

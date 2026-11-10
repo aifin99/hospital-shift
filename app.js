@@ -71,6 +71,7 @@
     pdfMaking: 'PDFを作成中…',
     pdfOpen: 'PDFを開く',
     pdfShare: '共有・保存',
+    pdfDownload: 'ダウンロード',
     pdfFailed: 'PDF を作れませんでした',
     pdfDone: '{name} ができました',
     // チェック結果
@@ -177,6 +178,15 @@
     makeConfirmOpen: '休み希望は受付中です',
     makeCloseAndGo: '締切にして作る',
     makeGo: 'このまま作る',
+    // シフトをクリア（v9）
+    clearShift: 'シフトをクリア',
+    clearConfirm: '{m}月の当直・待機を消します',
+    clearKeep: '固定は残す',
+    clearAll: 'すべて消す',
+    clearGo: '消す',
+    clearing: '消しています…',
+    cleared: '消しました（{n}枠）',
+    clearFailed: '消せませんでした',
     // 「？」を押したときだけ出す説明
     helpOpen: '説明を見る',
     helpConditions: '当直表全体への希望です。シフトを作るときの参考にします',
@@ -472,7 +482,7 @@
     var m = state.month;
     var line = $('result-line');
     var ai = $('ai-btn');
-    if (!editing() || !m.result) { line.hidden = true; ai.hidden = true; return; }
+    if (!editing() || !m.result) { line.hidden = true; ai.hidden = true; $('clear-btn').hidden = true; return; }
     line.hidden = false;
     line.innerHTML = '';
     var r = m.result;
@@ -486,7 +496,8 @@
     line.appendChild(sub);
     ai.hidden = false;
     var hasAny = m.days.some(function (d) { return d.dutyCode || d.standbyCode; });
-    ai.textContent = hasAny ? t('remakeShift') : t('makeShift'); // 設計書 v5 N10（動きは AI で素案を作る）
+    ai.textContent = hasAny ? t('remakeShift') : t('makeShift');
+    $('clear-btn').hidden = !hasAny; // 設計書 v5 N10（動きは AI で素案を作る）
   }
 
   function renderChecks() {
@@ -805,6 +816,35 @@
     });
   }
 
+  // ---- シフトをクリア（v9） ----
+  $('clear-btn').addEventListener('click', function () {
+    var m = state.month;
+    if (!m || !m.editing) return;
+    var hasFixed = (m.fixedCount || 0) > 0;
+    $('clear-text').textContent = t('clearConfirm', { m: Number(m.ym.slice(5, 7)) });
+    $('clear-keep').hidden = !hasFixed;
+    $('clear-all').hidden = !hasFixed;
+    $('clear-go').hidden = hasFixed;
+    $('clear-back').hidden = false;
+    $('clear-box').hidden = false;
+  });
+  function closeClear() { $('clear-back').hidden = true; $('clear-box').hidden = true; }
+  $('clear-cancel').addEventListener('click', closeClear);
+  $('clear-back').addEventListener('click', closeClear);
+  $('clear-keep').addEventListener('click', function () { closeClear(); runClear(true); });
+  $('clear-all').addEventListener('click', function () { closeClear(); runClear(false); });
+  $('clear-go').addEventListener('click', function () { closeClear(); runClear(false); });
+  function runClear(keepFixed) {
+    var ym = state.month.ym;
+    setMsg($('cal-msg'), t('clearing'));
+    call('clearMonth', [ym, keepFixed], function (res) {
+      if (!res.ok) { setMsg($('cal-msg'), res.reason || t('clearFailed'), 'err'); return; }
+      if (state.ym !== ym) return;
+      setMonth(res);
+      setMsg($('cal-msg'), t('cleared', { n: res.cleared || 0 }), 'ok');
+    }, function (msg) { setMsg($('cal-msg'), msg, 'err'); });
+  }
+
   function startPolling(ym) {
     stopPolling();
     showBusy(t('busyMaking'));
@@ -855,12 +895,16 @@
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       var blob = new Blob([bytes], { type: 'application/pdf' });
       state.pdfUrl = URL.createObjectURL(blob);
-      $('pdf-open').href = state.pdfUrl;
+      state.pdfName = res.fileName;
+      $('pdf-dl').href = state.pdfUrl;
+      $('pdf-dl').setAttribute('download', res.fileName);
       var file = null;
       try { file = new File([blob], res.fileName, { type: 'application/pdf' }); } catch (e) { file = null; }
       state.pdfFile = file;
-      var canShare = !!(file && navigator.canShare && navigator.share && navigator.canShare({ files: [file] }));
-      $('pdf-share').hidden = !canShare;
+      // ボタンは常に2つ：スマホ（共有が使える）なら「共有・保存」、PC などは「ダウンロード」
+      var share = shareMode(file);
+      $('pdf-share').hidden = !share;
+      $('pdf-dl').hidden = share;
       $('pdf-box').hidden = false;
       setMsg($('pdf-msg'), t('pdfDone', { name: res.fileName }), 'ok');
     }, function (msg) {
@@ -868,6 +912,21 @@
       $('pdf-btn').textContent = t('pdfMake');
       setMsg($('pdf-msg'), msg, 'err');
     });
+  });
+  /** 共有を出すのは、ファイルの共有が使えるスマホ・タブレットだけ（Windows の Chrome も共有を持っているが、PC はダウンロードにする） */
+  function shareMode(file) {
+    var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) ||
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    return !!(mobile && file && navigator.canShare && navigator.share && navigator.canShare({ files: [file] }));
+  }
+  // 「PDFを開く」：押したその場で新しいタブに開く（新しいタブとのつながりを切る指定は付けない。設計書 v9 Y2）。
+  // 新しいタブを開けない画面（アプリの中のブラウザなど）では、今のタブで開く
+  $('pdf-open').addEventListener('click', function () {
+    if (!state.pdfUrl) return;
+    var w = null;
+    try { w = window.open(state.pdfUrl, '_blank'); } catch (e) { w = null; }
+    if (!w) location.href = state.pdfUrl;
   });
   $('pdf-share').addEventListener('click', function () {
     if (!state.pdfFile) return;
