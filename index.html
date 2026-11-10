@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>産婦人科当直表</title>
+<link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <h1>産婦人科当直表</h1>
+    <span class="badge" id="edit-badge" hidden>編集中</span>
+    <button type="button" class="menu-btn" id="menu-btn" aria-label="メニュー" aria-expanded="false" aria-controls="menu">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="menu" id="menu" hidden>
+      <button type="button" id="m-login">編集する</button>
+      <button type="button" id="m-calendar" hidden>カレンダー</button>
+      <button type="button" id="m-master" hidden>担当医マスタ</button>
+      <button type="button" id="m-logout" hidden>編集を終える</button>
+    </nav>
+  </header>
+
+  <!-- カレンダー（#calendar） -->
+  <section id="view-calendar" class="view">
+    <div class="month-nav">
+      <button type="button" id="prev" aria-label="前の月">◀</button>
+      <div class="month-title"><span id="cal-title">産婦人科当直表</span><span id="cal-label"></span></div>
+      <button type="button" id="next" aria-label="次の月">▶</button>
+    </div>
+    <div class="legend"><b>太字＝当直</b>／細字＝待機</div>
+    <div class="msg" id="cal-msg" role="status"></div>
+    <table class="grid" aria-label="当直表">
+      <thead><tr><th class="sun">日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th class="sat">土</th></tr></thead>
+      <tbody id="grid-body"></tbody>
+    </table>
+
+    <div class="result-line" id="result-line" hidden></div>
+    <div class="actions">
+      <button type="button" class="btn primary" id="ai-btn" hidden>シフトを作る</button>
+      <button type="button" class="btn" id="pdf-btn">PDFを作る</button>
+      <div class="pdf-box" id="pdf-box" hidden>
+        <a class="btn" id="pdf-open" target="_blank" rel="noopener">PDFを開く</a>
+        <button type="button" class="btn" id="pdf-share" hidden>共有・保存</button>
+      </div>
+      <div class="msg" id="pdf-msg"></div>
+    </div>
+
+    <div class="checks" id="checks" hidden>
+      <h2>チェック結果</h2>
+      <div id="checks-body"></div>
+    </div>
+
+    <h2>集計表</h2>
+    <div class="summary-wrap">
+      <table class="summary" id="summary"></table>
+    </div>
+  </section>
+
+  <!-- 担当医マスタ（#master。編集モードだけ） -->
+  <section id="view-master" class="view" hidden>
+    <h2 class="page-title">担当医マスタ</h2>
+    <div class="msg" id="master-msg" role="status"></div>
+    <div id="master-list"></div>
+    <button type="button" class="btn" id="doc-add">＋ 担当医を追加</button>
+    <div class="holiday-box">
+      <h3>祝日</h3>
+      <p class="hint">その年を初めて開いたときに日本の祝日を自動で入れます。病院独自の休日はスプレッドシートの「休日」シートに行を足してください。</p>
+      <button type="button" class="btn sub" id="holiday-btn">祝日を取り込み直す</button>
+      <div class="msg" id="holiday-msg"></div>
+    </div>
+  </section>
+</div>
+
+<!-- 日を押したとき（下から出るシート） -->
+<div class="sheet-back" id="day-back" hidden></div>
+<div class="sheet" id="day-sheet" role="dialog" aria-modal="true" aria-labelledby="day-title" hidden>
+  <div class="sheet-head">
+    <h2 id="day-title"></h2>
+    <button type="button" class="close-btn" id="day-close" aria-label="閉じる">×</button>
+  </div>
+  <div class="sheet-body" id="day-body"></div>
+</div>
+
+<!-- 担当医の編集 -->
+<div class="sheet-back" id="doc-back" hidden></div>
+<div class="sheet" id="doc-sheet" role="dialog" aria-modal="true" aria-labelledby="doc-title" hidden>
+  <div class="sheet-head">
+    <h2 id="doc-title">担当医</h2>
+    <button type="button" class="close-btn" id="doc-close" aria-label="閉じる">×</button>
+  </div>
+  <form class="sheet-body form" id="doc-form" autocomplete="off" novalidate>
+    <div class="field"><label for="f-name">氏名</label><input type="text" id="f-name" maxlength="20"></div>
+    <div class="field"><label for="f-kind">区分</label>
+      <select id="f-kind"><option>上級医</option><option>下級医</option><option>代務医</option></select></div>
+    <div class="field"><label for="f-order">表示順</label><input type="number" id="f-order" inputmode="numeric" min="0"></div>
+    <div class="field checks-row">
+      <label class="check"><input type="checkbox" id="f-active">有効</label>
+      <label class="check"><input type="checkbox" id="f-excluded">シフト対象外</label>
+      <label class="check"><input type="checkbox" id="f-priority">優先</label>
+    </div>
+    <div class="field" id="f-pair-box">
+      <label class="check"><input type="checkbox" id="f-pair">下級医どうし可</label>
+      <div class="hint">チェックした下級医どうしに限り、やむを得ないときに当直・待機を組んでよい（AI への指示だけに使います）</div>
+    </div>
+    <fieldset class="field"><legend>当直に入れる日</legend><div class="days" id="f-duty-days"></div>
+      <label class="check"><input type="checkbox" id="f-prehol">休日前日のみ</label></fieldset>
+    <div class="field"><label for="f-duty-max">当直の上限（月）</label><input type="number" id="f-duty-max" inputmode="numeric" min="0">
+      <div class="hint" id="f-duty-max-hint">空欄は制限なし</div></div>
+    <fieldset class="field" id="f-standby-box"><legend>待機に入れる日</legend><div class="days" id="f-standby-days"></div>
+      <div class="hint">全部外すと待機に入れません</div></fieldset>
+    <div class="field" id="f-standby-max-box"><label for="f-standby-max">待機の上限（月）</label><input type="number" id="f-standby-max" inputmode="numeric" min="0">
+      <div class="hint">空欄は制限なし</div></div>
+    <div class="field"><label for="f-note">備考</label><textarea id="f-note" rows="3" maxlength="300"></textarea>
+      <div class="hint">この欄は AI にも渡します。他の先生の名前は書かないでください。検査されるのは上の項目だけです</div>
+      <div class="msg err" id="f-note-blocked" hidden>名前が入っているので AI には渡しません</div></div>
+    <button type="submit" class="btn primary" id="doc-save">保存</button>
+    <div class="msg" id="doc-msg"></div>
+  </form>
+</div>
+
+<!-- 合言葉 -->
+<div class="sheet-back" id="login-back" hidden></div>
+<div class="modal" id="login-box" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
+  <form id="login-form" autocomplete="off" novalidate>
+    <h2 id="login-title">編集する</h2>
+    <p class="hint">当直表を作る・直すときだけ、合言葉が要ります。</p>
+    <label for="login-pass">合言葉</label>
+    <input type="password" id="login-pass" autocomplete="off">
+    <div class="msg" id="login-msg" role="status"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn sub" id="login-cancel">やめる</button>
+      <button type="submit" class="btn primary" id="login-ok">入る</button>
+    </div>
+  </form>
+</div>
+
+<!-- 作成中 -->
+<div class="busy" id="busy" hidden>
+  <div class="busy-box" role="status"><div class="spinner" aria-hidden="true"></div><p id="busy-text"></p></div>
+</div>
+
+<script src="config.js?v=1"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>
