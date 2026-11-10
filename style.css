@@ -238,3 +238,41 @@ h2 { font-size: 18px; margin: 20px 0 8px; }
 .cond-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .btn.small { width: auto; min-height: 44px; padding: 0 14px; font-weight: normal; }
 #cond-add { margin-top: 4px; }
+/* 「？」を押したときだけ出す説明（v7） */
+.with-help { display: flex; align-items: center; gap: 6px; }
+.label-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.label-row label { font-weight: bold; font-size: 15px; }
+.help-btn {
+  width: 32px; height: 32px; min-width: 32px; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: var(--muted);
+  font-size: 15px; font-weight: bold; line-height: 1; cursor: pointer; padding: 0; position: relative;
+}
+.help-btn::after { content: ''; position: absolute; inset: -6px; } /* 押せる範囲を 44px に */
+.help-btn[aria-expanded="true"] { background: var(--navy); color: #fff; border-color: var(--navy); }
+.help-box { font-size: 14px; background: #eef2f8; border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+/* v8：固定の枠・休み希望・受付の札・確認 */
+.cell .fixed { background: #fff3c4; border-radius: 3px; }
+.cell .off-mark { position: absolute; top: 1px; right: 2px; font-size: 10px; line-height: 1; color: #7a4b00; background: #ffe2b3; border-radius: 3px; padding: 1px 2px; }
+.grid .cell { position: relative; }
+.status-row { text-align: center; margin: 0 0 6px; }
+.off-status { min-height: 32px; padding: 2px 14px; border-radius: 16px; border: 1px solid; font-size: 14px; font-weight: bold; background: #fff; position: relative; }
+.off-status::after { content: ''; position: absolute; inset: -6px; }
+.off-status.open { color: var(--ok); border-color: var(--ok); background: #e6f4ec; }
+.off-status.closed { color: #555; border-color: #999; background: #ececec; }
+.off-status:disabled { cursor: default; opacity: 1; }
+.off-status:not(:disabled) { cursor: pointer; }
+.off-names { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.off-name { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; background: #fff; font-size: 16px; cursor: pointer; }
+.off-name.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: bold; }
+.off-grid td { height: 56px; }
+.off-grid .cell { min-height: 56px; }
+.off-grid.disabled { opacity: .45; }
+.off-grid .off-cell:disabled { cursor: default; }
+.off-grid td.off-on { background: #ffd9a8; }
+.off-grid .off-big { display: block; font-size: 18px; font-weight: bold; color: #7a4b00; }
+.off-count { text-align: center; font-size: 16px; font-weight: bold; margin: 8px 0; }
+.off-all { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.off-all-item { padding: 4px 0; border-bottom: 1px solid #f0f1f4; font-size: 15px; }
+.off-all-item:last-child { border-bottom: 0; }
+.off-names-line { margin: 0 0 10px; padding: 8px 10px; background: #fff3e0; border-radius: 8px; font-size: 15px; }
+.make-text { font-size: 16px; margin: 0 0 12px; }
+.modal-col { display: flex; flex-direction: column; gap: 8px; }
