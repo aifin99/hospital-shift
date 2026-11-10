@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>産婦人科当直表</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div class="wrap">
@@ -20,6 +20,7 @@
       <button type="button" id="m-login">編集する</button>
       <button type="button" id="m-calendar" hidden>カレンダー</button>
       <button type="button" id="m-master" hidden>担当医マスタ</button>
+      <button type="button" id="m-conditions" hidden>全体の条件</button>
       <button type="button" id="m-logout" hidden>編集を終える</button>
     </nav>
   </header>
@@ -73,6 +74,17 @@
       <div class="msg" id="holiday-msg"></div>
     </div>
   </section>
+
+  <!-- 全体の条件（#conditions。編集モードだけ。v6） -->
+  <section id="view-conditions" class="view" hidden>
+    <h2 class="page-title">全体の条件</h2>
+    <p class="lead">当直表全体への希望を書きます。「シフトを作る」のときに一緒に考慮されます。守れたかどうかは検査されません（必ず守らせたいルールは担当医マスタの項目で設定します）。</p>
+    <p class="hint">例：同じ先生が同じ曜日に固まらないようにする／連休の当直は同じ先生に続けて頼まない</p>
+    <p class="hint">変えた内容は、次に「シフトを作る／作り直す」を押したときから効きます（いまの当直表は変わりません）。</p>
+    <div class="msg" id="cond-msg" role="status"></div>
+    <div id="cond-list"></div>
+    <button type="button" class="btn" id="cond-add">＋ 条件を追加</button>
+  </section>
 </div>
 
 <!-- 日を押したとき（下から出るシート） -->
@@ -122,6 +134,22 @@
   </form>
 </div>
 
+<!-- 全体の条件の編集 -->
+<div class="sheet-back" id="cond-back" hidden></div>
+<div class="sheet" id="cond-sheet" role="dialog" aria-modal="true" aria-labelledby="cond-title" hidden>
+  <div class="sheet-head">
+    <h2 id="cond-title">条件</h2>
+    <button type="button" class="close-btn" id="cond-close" aria-label="閉じる">×</button>
+  </div>
+  <form class="sheet-body form" id="cond-form" autocomplete="off" novalidate>
+    <div class="field"><label for="cf-text">内容（200字まで）</label><textarea id="cf-text" rows="4" maxlength="200" placeholder="例：同じ先生が同じ曜日に固まらないようにする"></textarea>
+      <div class="hint">先生の名前を書いたときは、AI には医師コードに置き換えて渡します。代務医の名前を書いた行は渡しません</div></div>
+    <div class="field"><label for="cf-order">表示順</label><input type="number" id="cf-order" inputmode="numeric" min="0"></div>
+    <button type="submit" class="btn primary">保存</button>
+    <div class="msg" id="cf-msg"></div>
+  </form>
+</div>
+
 <!-- 合言葉 -->
 <div class="sheet-back" id="login-back" hidden></div>
 <div class="modal" id="login-box" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
@@ -143,7 +171,7 @@
   <div class="busy-box" role="status"><div class="spinner" aria-hidden="true"></div><p id="busy-text"></p></div>
 </div>
 
-<script src="config.js?v=1"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=2"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

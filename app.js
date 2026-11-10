@@ -95,6 +95,7 @@
   $('m-login').addEventListener('click', function () { setMenuOpen(false); openLogin(''); });
   $('m-calendar').addEventListener('click', function () { setMenuOpen(false); location.hash = '#calendar'; });
   $('m-master').addEventListener('click', function () { setMenuOpen(false); location.hash = '#master'; });
+  $('m-conditions').addEventListener('click', function () { setMenuOpen(false); location.hash = '#conditions'; });
   $('m-logout').addEventListener('click', function () {
     setMenuOpen(false);
     var k = state.key;
@@ -111,21 +112,25 @@
     $('m-login').hidden = ed;
     $('m-calendar').hidden = !ed;
     $('m-master').hidden = !ed;
+    $('m-conditions').hidden = !ed;
     $('m-logout').hidden = !ed;
     $('m-calendar').classList.toggle('active', state.view === 'calendar');
     $('m-master').classList.toggle('active', state.view === 'master');
-    if (state.month && !ed && state.view === 'master') { state.view = 'calendar'; showView(); }
+    $('m-conditions').classList.toggle('active', state.view === 'conditions');
+    if (state.month && !ed && state.view !== 'calendar') { state.view = 'calendar'; showView(); }
   }
   function route() {
-    var v = location.hash === '#master' ? 'master' : 'calendar';
-    if (v === 'master' && !state.key) v = 'calendar';
+    var v = location.hash === '#master' ? 'master' : location.hash === '#conditions' ? 'conditions' : 'calendar';
+    if (v !== 'calendar' && !state.key) v = 'calendar';
     state.view = v;
     showView();
     if (v === 'master') loadDoctors();
+    if (v === 'conditions') loadConditions();
   }
   function showView() {
     $('view-calendar').hidden = state.view !== 'calendar';
     $('view-master').hidden = state.view !== 'master';
+    $('view-conditions').hidden = state.view !== 'conditions';
     applyMode();
     window.scrollTo(0, 0);
   }
@@ -792,6 +797,89 @@
       setMsg($('holiday-msg'), year + '年の祝日を ' + res.count + '件 入れました', 'ok');
       loadMonthQuiet();
     }, function (msg) { setMsg($('holiday-msg'), msg, 'err'); });
+  });
+
+  // ---- 全体の条件（#conditions。v6） ----
+  function loadConditions() {
+    setMsg($('cond-msg'), '読み込み中…');
+    call('listConditions', [state.ym], function (res) {
+      if (!res.ok) { setMsg($('cond-msg'), res.reason || '読み込めませんでした', 'err'); return; }
+      setMsg($('cond-msg'), '');
+      renderConditions(res.conditions);
+    }, function (msg) { setMsg($('cond-msg'), msg, 'err'); });
+  }
+  function renderConditions(list) {
+    state.conditions = list;
+    var box = $('cond-list');
+    box.innerHTML = '';
+    if (!list.length) box.appendChild(el('p', 'hint', 'まだありません。下の「追加」から書いてください。'));
+    list.forEach(function (c) {
+      var card = el('div', 'cond-card' + (c.active ? '' : ' inactive'));
+      var text = el('button', 'cond-text', c.text);
+      text.type = 'button';
+      text.setAttribute('aria-label', '編集：' + c.text);
+      text.addEventListener('click', function () { openCond(c); });
+      card.appendChild(text);
+      if (c.blocked) card.appendChild(el('div', 'blocked', c.blocked));
+      var row = el('div', 'cond-row');
+      var tg = el('label', 'toggle');
+      var cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = !!c.active;
+      cb.addEventListener('change', function () {
+        saveCond({ id: c.id, text: c.text, order: c.order, active: cb.checked });
+      });
+      tg.appendChild(cb);
+      tg.appendChild(document.createTextNode('有効'));
+      row.appendChild(tg);
+      var del = el('button', 'btn danger small', '削除');
+      del.type = 'button';
+      del.addEventListener('click', function () {
+        if (!window.confirm('この条件を削除します。よろしいですか\n\n' + c.text)) return;
+        setMsg($('cond-msg'), '削除しています…');
+        call('deleteCondition', [c.id, state.ym], function (res) {
+          if (!res.ok) { setMsg($('cond-msg'), res.reason || '削除できませんでした', 'err'); return; }
+          renderConditions(res.conditions);
+          setMsg($('cond-msg'), '削除しました', 'ok');
+        }, function (msg) { setMsg($('cond-msg'), msg, 'err'); });
+      });
+      row.appendChild(del);
+      card.appendChild(row);
+      box.appendChild(card);
+    });
+  }
+  function saveCond(c, after) {
+    setMsg($('cond-msg'), '保存しています…');
+    call('saveCondition', [c, state.ym], function (res) {
+      if (!res.ok) {
+        setMsg(after ? $('cf-msg') : $('cond-msg'), res.reason || '保存できませんでした', 'err');
+        if (!after) loadConditions();
+        return;
+      }
+      renderConditions(res.conditions);
+      setMsg($('cond-msg'), '保存しました', 'ok');
+      if (after) after();
+    }, function (msg) { setMsg(after ? $('cf-msg') : $('cond-msg'), msg, 'err'); });
+  }
+  function openCond(c) {
+    state.editingCond = c || null;
+    $('cond-title').textContent = c ? '条件を直す' : '条件を追加';
+    $('cf-text').value = c ? c.text : '';
+    $('cf-order').value = c && c.order !== null && c.order !== undefined ? c.order : '';
+    setMsg($('cf-msg'), '');
+    $('cond-back').hidden = false;
+    $('cond-sheet').hidden = false;
+  }
+  function closeCond() { $('cond-back').hidden = true; $('cond-sheet').hidden = true; state.editingCond = null; }
+  $('cond-close').addEventListener('click', closeCond);
+  $('cond-back').addEventListener('click', closeCond);
+  $('cond-add').addEventListener('click', function () { openCond(null); });
+  $('cond-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var c = state.editingCond;
+    var text = $('cf-text').value.trim();
+    if (!text) { setMsg($('cf-msg'), '内容を入れてください', 'err'); return; }
+    saveCond({ id: c ? c.id : '', text: text, order: $('cf-order').value, active: c ? c.active : true }, closeCond);
   });
 
   // ---- 始め：初期表示は「今日の翌月」 ----
