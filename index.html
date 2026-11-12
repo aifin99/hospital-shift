@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>産婦人科当直表</title>
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <!--
@@ -34,7 +34,7 @@
   <section id="view-calendar" class="view">
     <div class="month-nav">
       <button type="button" id="prev" data-t-aria="prevMonth">◀</button>
-      <div class="month-title"><span id="cal-title" data-t="appTitle"></span><span id="cal-label"></span></div>
+      <div class="month-title"><span id="cal-title" data-t="appTitle"></span><span id="cal-label"></span><span class="sync" id="cal-sync" aria-hidden="true" hidden></span></div>
       <button type="button" id="next" data-t-aria="nextMonth">▶</button>
     </div>
     <div class="status-row" id="cal-off-row" hidden><button type="button" class="off-status" id="cal-off-status"></button></div>
@@ -86,7 +86,7 @@
   <section id="view-offs" class="view" hidden>
     <div class="month-nav">
       <button type="button" id="off-prev" data-t-aria="prevMonth">◀</button>
-      <div class="month-title"><span data-t="menuOffs"></span><span id="off-label"></span></div>
+      <div class="month-title"><span data-t="menuOffs"></span><span id="off-label"></span><span class="sync" id="off-sync" aria-hidden="true" hidden></span></div>
       <button type="button" id="off-next" data-t-aria="nextMonth">▶</button>
     </div>
     <div class="status-row"><button type="button" class="off-status" id="off-status" disabled></button></div>
@@ -214,6 +214,6 @@
 </div>
 
 <script src="config.js?v=2"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

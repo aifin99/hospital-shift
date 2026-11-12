@@ -215,7 +215,15 @@
     openRow: null,     // 集計表で理由を開いている行
     offDoctor: loadOffDoctor(), // 休み希望の画面で選んだ医師コード（このスマホが覚える）
     offData: null,     // getOffs の結果
-    offNo: 0
+    offNo: 0,
+    months: {},        // v10 F1：覚えている月 { ym: { data, at, stale } }（メモリの中だけ。編集モードのデータもここだけ）
+    prefetching: false,
+    slotQ: [],         // v10 F4：選び直しなどの送る順番待ち
+    slotBusy: false,
+    slotServer: null,  // 最後にサーバーから受け取った月（失敗したらこれに戻す）
+    offQ: [],          // v10 F4：休み希望の送る順番待ち
+    offBusy: false,
+    offServer: null
   };
 
   // ---- 小さな道具 ----
@@ -232,6 +240,21 @@
   }
   function loadOffDoctor() { try { return localStorage.getItem('shift_off_doctor') || ''; } catch (e) { return ''; } }
   function saveOffDoctor(c) { try { if (c) localStorage.setItem('shift_off_doctor', c); else localStorage.removeItem('shift_off_doctor'); } catch (e) { /* 保存できない端末 */ } }
+  // v10 F2：見るだけの月のデータを、そのスマホに残す（直近6か月分）。編集モードのデータは残さない
+  var VIEW_STORE = 'shift_view_months_v1';
+  function loadViewStore() {
+    try { var x = JSON.parse(localStorage.getItem(VIEW_STORE) || '{}'); return x && typeof x === 'object' ? x : {}; } catch (e) { return {}; }
+  }
+  function saveViewMonth(data) {
+    if (!data || data.editing !== false || !data.ym) return; // 編集モードのデータは入れない
+    try {
+      var all = loadViewStore();
+      all[data.ym] = { data: data, at: Date.now() };
+      var keys = Object.keys(all).sort(function (a, b) { return all[b].at - all[a].at; });
+      keys.slice(6).forEach(function (k) { delete all[k]; });
+      localStorage.setItem(VIEW_STORE, JSON.stringify(all));
+    } catch (e) { /* 保存できない端末 */ }
+  }
   function loadKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; } }
   function saveKey(k) {
     state.key = k || '';
@@ -267,6 +290,7 @@
     }).then(function (data) {
       if (data && data.auth === false) {
         saveKey('');
+        state.months = {};
         if (state.month) state.month.editing = false;
         applyMode();
         openLogin(t('reLogin'));
@@ -298,6 +322,8 @@
     var k = state.key;
     call('logout', [], function () {}, function () {});
     if (k) saveKey('');
+    state.months = {}; // 編集モードで覚えた月（条件・検査結果・固定など）を捨てる
+    state.offData = null;
     if (state.month) state.month.editing = false;
     location.hash = '#calendar';
     loadMonth(state.ym);
@@ -361,6 +387,7 @@
       $('login-ok').disabled = false;
       if (!res.ok) { setMsg($('login-msg'), res.reason || t('loginFailed'), 'err'); return; }
       saveKey(res.key);
+      state.months = {};
       closeLogin();
       loadMonth(state.ym);
       if (state.view === 'offs') loadOffs();
@@ -374,27 +401,87 @@
   $('prev').addEventListener('click', function () { loadMonth(addMonth(state.ym, -1)); });
   $('next').addEventListener('click', function () { loadMonth(addMonth(state.ym, 1)); });
 
+  /** 覚えている月（今のモードに合うもの・古くないもの）。見るだけのときはスマホに残したものも使う */
+  function cachedMonth(ym) {
+    var wantEdit = !!state.key;
+    var c = state.months[ym];
+    if (c && !c.stale && !!c.data.editing === wantEdit) return c;
+    if (!wantEdit) {
+      var v = loadViewStore()[ym];
+      if (v && v.data && v.data.editing === false) return v;
+    }
+    return null;
+  }
+  function storeMonth(data) {
+    if (!data || !data.ym) return;
+    state.months[data.ym] = { data: data, at: Date.now(), stale: false };
+    saveViewMonth(data);
+  }
+  /** F6：保存・作成・クリアの後は、その月を答えで更新し、前後の月を「古い」にする（月をまたぐ連続当直の検査のため） */
+  function storeAfterChange(data) {
+    storeMonth(data);
+    [addMonth(data.ym, -1), addMonth(data.ym, 1)].forEach(function (x) { if (state.months[x]) state.months[x].stale = true; });
+  }
+  /** F6：担当医マスタ・全体の条件・休み希望・受付の状態を変えたら、覚えている月を全部「古い」に */
+  function markAllStale() {
+    Object.keys(state.months).forEach(function (x) { state.months[x].stale = true; });
+  }
+  var syncCount = 0;
+  function showSync(on) {
+    syncCount = Math.max(0, syncCount + (on ? 1 : -1));
+    $('cal-sync').hidden = syncCount === 0;
+  }
   function loadMonth(ym) {
     state.ym = ym;
     var no = ++state.reqNo;
     stopPolling();
     hidePdf();
     $('cal-label').textContent = labelOf(ym);
-    setMsg($('cal-msg'), t('loading'));
-    call('getMonth', [ym], function (res) {
-      if (no !== state.reqNo) return;
-      if (!res.ok) { setMsg($('cal-msg'), res.reason || t('loadFailed'), 'err'); return; }
-      if (res.keyRejected) saveKey('');
+    var c = cachedMonth(ym);
+    if (c) {
       setMsg($('cal-msg'), '');
-      setMonth(res);
+      setMonth(c.data); // F1：通信を待たずにすぐ出す
+    } else {
+      setMsg($('cal-msg'), t('loading'));
+    }
+    showSync(true);
+    call('getMonth', [ym], function (res) {
+      showSync(false);
+      if (!res.ok) { if (no === state.reqNo) setMsg($('cal-msg'), res.reason || t('loadFailed'), 'err'); return; }
+      if (res.keyRejected) { saveKey(''); state.months = {}; }
+      storeMonth(res);
+      if (no !== state.reqNo) return;
+      setMsg($('cal-msg'), '');
+      // 送る順番待ちがあるときは、押した結果を消さないように差し替えない
+      if (!state.slotQ.length && (!state.month || state.month.ym !== ym || JSON.stringify(state.month) !== JSON.stringify(res))) setMonth(res);
+      prefetchNeighbors(ym);
       if (res.editing && res.generation && res.generation.state === '作成中') startPolling(ym);
       if (res.editing && res.generation && res.generation.state === '失敗') {
         setMsg($('cal-msg'), t('lastFailed'), 'err');
       }
     }, function (msg) {
+      showSync(false);
       if (no !== state.reqNo) return;
-      setMsg($('cal-msg'), msg, 'err');
+      if (!state.month || state.month.ym !== ym) setMsg($('cal-msg'), msg, 'err');
     });
+  }
+  /** F3：今の月が出た後に、前月・翌月を裏で1つずつ取る（覚えていて1分以内なら取らない） */
+  function prefetchNeighbors(ym) {
+    if (state.prefetching) return;
+    var todo = [addMonth(ym, -1), addMonth(ym, 1)].filter(function (x) {
+      var c = state.months[x];
+      return !(c && !c.stale && !!c.data.editing === !!state.key && Date.now() - c.at < 60000);
+    });
+    var next = function () {
+      var x = todo.shift();
+      if (!x) { state.prefetching = false; return; }
+      call('getMonth', [x], function (res) {
+        if (res.ok && !res.keyRejected && !!res.editing === !!state.key) storeMonth(res);
+        next();
+      }, function () { next(); });
+    };
+    state.prefetching = true;
+    next();
   }
   function labelOf(ym) {
     return t('monthLabel', { y: Number(ym.slice(0, 4)) - 2018, m: Number(ym.slice(5, 7)) });
@@ -754,16 +841,77 @@
     return box;
   }
 
+  /** 押した内容を、画面の月（写し）に当てはめる（名前は選び直しの一覧から）。検査結果はサーバーの答えで置き換わる */
+  function applySlotPatch(month, date, patch) {
+    var d = null;
+    month.days.forEach(function (x) { if (x.date === date) d = x; });
+    if (!d) return;
+    var cands = (month.candidates && month.candidates[date]) || { duty: [], standby: [] };
+    var find = function (list, code) { for (var i = 0; i < list.length; i++) if (list[i].code === code) return list[i]; return null; };
+    if ('duty' in patch && patch.duty !== d.dutyCode) {
+      var c = find(cands.duty, patch.duty);
+      d.dutyCode = patch.duty;
+      d.subName = '';
+      d.dutySub = !!(c && c.kind === '代務医');
+      d.duty = !patch.duty ? '' : d.dutySub ? t('subMark') : (c ? c.name : patch.duty);
+      d.dutyFixed = patch.duty !== '';
+    }
+    if ('standby' in patch && patch.standby !== d.standbyCode) {
+      var s = find(cands.standby, patch.standby);
+      d.standbyCode = patch.standby;
+      d.standby = !patch.standby ? '' : (s ? s.name : patch.standby);
+      d.standbyFixed = patch.standby !== '';
+    }
+    if ('subName' in patch && d.dutySub) {
+      var nm = String(patch.subName || '').trim().slice(0, 20);
+      if (nm !== d.subName) { d.subName = nm; if (nm) d.dutyFixed = true; }
+      d.duty = t('subMark') + d.subName;
+    }
+    if ('memo' in patch) d.memo = String(patch.memo || '').trim().slice(0, 100);
+    if ('dutyFixed' in patch) d.dutyFixed = !!patch.dutyFixed && !!d.dutyCode;
+    if ('standbyFixed' in patch) d.standbyFixed = !!patch.standbyFixed && !!d.standbyCode;
+  }
+  function copyOf(x) { return JSON.parse(JSON.stringify(x)); }
+  /** サーバーの答え（または失敗したときの最後の答え）に、まだ送っていない分を重ねて画面に出す */
+  function showSlotState(base) {
+    if (!base || state.ym !== base.ym) return;
+    var m = copyOf(base);
+    state.slotQ.forEach(function (op) { if (op.ym === m.ym) applySlotPatch(m, op.date, op.patch); });
+    setMonth(m);
+  }
   function saveSlot(date, patch) {
-    var msg = $('day-msg');
-    if (msg) setMsg(msg, t('saving'));
-    call('saveSlot', [date, patch], function (res) {
-      if (!res.ok) { if ($('day-msg')) setMsg($('day-msg'), res.reason || t('saveFailed'), 'err'); return; }
-      setMonth(res);
-      if ($('day-msg')) setMsg($('day-msg'), t('saved'), 'ok');
-    }, function (m) {
-      if ($('day-msg')) setMsg($('day-msg'), m, 'err');
-    });
+    var m = state.month;
+    if (!m || !m.editing) return;
+    if (!state.slotQ.length) state.slotServer = copyOf(m);
+    state.slotQ.push({ ym: m.ym, date: date, patch: patch });
+    var view = copyOf(m);
+    applySlotPatch(view, date, patch);
+    setMonth(view); // F4：押した瞬間に画面を変える
+    pumpSlots();
+  }
+  function pumpSlots() {
+    if (state.slotBusy || !state.slotQ.length) return;
+    state.slotBusy = true;
+    var op = state.slotQ[0];
+    var done = function (res, errMsg) {
+      state.slotQ.shift();
+      state.slotBusy = false;
+      if (res) {
+        state.slotServer = res;
+        storeAfterChange(res);
+      }
+      showSlotState(state.slotServer);
+      if (!res && state.ym === op.ym) {
+        // 失敗：元に戻したうえで短く知らせる（日のシートを開いていればそこにも）
+        setMsg($('cal-msg'), errMsg || t('saveFailed'), 'err');
+        if ($('day-msg')) setMsg($('day-msg'), errMsg || t('saveFailed'), 'err');
+      }
+      pumpSlots();
+    };
+    call('saveSlot', [op.date, op.patch], function (res) {
+      if (!res.ok) { done(null, res.reason); return; }
+      done(res);
+    }, function (msg) { done(null, msg); });
   }
 
   // ---- 「シフトを作る／作り直す」（AI で素案を作る） ----
@@ -788,6 +936,7 @@
     showBusy(t('busyMaking'));
     call('setOffStatus', [ym, '締切'], function (res) {
       if (!res.ok) { hideBusy(); setMsg($('cal-msg'), res.reason || t('offStatusFailed'), 'err'); return; }
+      markAllStale();
       runMake();
     }, function (msg) { hideBusy(); setMsg($('cal-msg'), msg, 'err'); });
   });
@@ -804,6 +953,7 @@
         return;
       }
       hideBusy();
+      storeAfterChange(res);
       if (state.ym === ym) {
         setMonth(res);
         var r = res.run || {};
@@ -839,6 +989,7 @@
     setMsg($('cal-msg'), t('clearing'));
     call('clearMonth', [ym, keepFixed], function (res) {
       if (!res.ok) { setMsg($('cal-msg'), res.reason || t('clearFailed'), 'err'); return; }
+      storeAfterChange(res);
       if (state.ym !== ym) return;
       setMonth(res);
       setMsg($('cal-msg'), t('cleared', { n: res.cleared || 0 }), 'ok');
@@ -861,6 +1012,7 @@
         if (res.state === '作成中') return;
         stopPolling();
         hideBusy();
+        if (state.months[ym]) state.months[ym].stale = true;
         if (state.ym === ym) {
           loadMonth(ym);
         }
@@ -1064,8 +1216,9 @@
   });
   // マスタを変えたら、カレンダーの検査と集計を読み直しておく（画面は切り替えない）
   function loadMonthQuiet() {
+    markAllStale();
     var ym = state.ym;
-    call('getMonth', [ym], function (res) { if (res.ok && state.ym === ym) setMonth(res); }, function () {});
+    call('getMonth', [ym], function (res) { if (res.ok) { storeMonth(res); if (state.ym === ym) setMonth(res); } }, function () {});
   }
   $('holiday-btn').addEventListener('click', function () {
     var year = Number(state.ym.slice(0, 4));
@@ -1119,6 +1272,7 @@
         call('deleteCondition', [c.id, state.ym], function (res) {
           if (!res.ok) { setMsg($('cond-msg'), res.reason || t('deleteFailed'), 'err'); return; }
           renderConditions(res.conditions);
+          markAllStale();
           setMsg($('cond-msg'), t('deleted'), 'ok');
         }, function (msg) { setMsg($('cond-msg'), msg, 'err'); });
       });
@@ -1136,6 +1290,7 @@
         return;
       }
       renderConditions(res.conditions);
+      markAllStale();
       setMsg($('cond-msg'), t('saved'), 'ok');
       if (after) after();
     }, function (msg) { setMsg(after ? $('cf-msg') : $('cond-msg'), msg, 'err'); });
@@ -1178,6 +1333,8 @@
     var next = current === '締切' ? '受付中' : '締切';
     call('setOffStatus', [ym, next], function (res) {
       if (!res.ok) { setMsg($('cal-msg'), res.reason || t('offStatusFailed'), 'err'); return; }
+      markAllStale();
+      if (state.months[ym]) { state.months[ym].data.offStatus = res.status; state.months[ym].stale = false; }
       done(res.status);
     }, function (msg) { setMsg($('cal-msg'), msg, 'err'); });
   }
@@ -1194,27 +1351,25 @@
   $('off-prev').addEventListener('click', function () { state.ym = addMonth(state.ym, -1); loadOffs(); });
   $('off-next').addEventListener('click', function () { state.ym = addMonth(state.ym, 1); loadOffs(); });
 
+  // F5：医師の一覧・その医師の休み・受付の状態を getOffs の1回で受け取る
   function loadOffs() {
     var ym = state.ym;
     var no = ++state.offNo;
     $('off-label').textContent = labelOf(ym);
-    setMsg($('off-msg'), t('loading'));
-    var gotNames = function (docs) {
-      state.offDoctors = docs;
-      if (state.offDoctor && !docs.some(function (d) { return d.code === state.offDoctor; })) { state.offDoctor = ''; saveOffDoctor(''); }
-      call('getOffs', [ym, state.offDoctor], function (res) {
-        if (no !== state.offNo) return;
-        if (!res.ok) { setMsg($('off-msg'), res.reason || t('loadFailed'), 'err'); return; }
-        setMsg($('off-msg'), '');
-        state.offData = res;
-        renderOffs();
-      }, function (msg) { if (no === state.offNo) setMsg($('off-msg'), msg, 'err'); });
-    };
-    if (state.offDoctors) { gotNames(state.offDoctors); return; }
-    call('listOffDoctors', [], function (res) {
+    if (!state.offData || state.offData.ym !== ym) setMsg($('off-msg'), t('loading'));
+    $('off-sync').hidden = false;
+    call('getOffs', [ym, state.offDoctor], function (res) {
+      if (no !== state.offNo) return;
+      $('off-sync').hidden = true;
       if (!res.ok) { setMsg($('off-msg'), res.reason || t('loadFailed'), 'err'); return; }
-      gotNames(res.doctors);
-    }, function (msg) { setMsg($('off-msg'), msg, 'err'); });
+      setMsg($('off-msg'), '');
+      state.offDoctors = res.doctors;
+      if (state.offDoctor && !res.doctors.some(function (d) { return d.code === state.offDoctor; })) {
+        state.offDoctor = '';
+        saveOffDoctor('');
+      }
+      if (!state.offQ.length) { state.offData = res; state.offServer = res; renderOffs(); }
+    }, function (msg) { if (no === state.offNo) { $('off-sync').hidden = true; setMsg($('off-msg'), msg, 'err'); } });
   }
 
   function renderOffs() {
@@ -1230,6 +1385,12 @@
       b.addEventListener('click', function () {
         state.offDoctor = doc.code;
         saveOffDoctor(doc.code);
+        // 名前の色はすぐ変える（休みは取ってから）
+        Array.prototype.forEach.call(names.querySelectorAll('.off-name'), function (x) {
+          var on = x === b;
+          x.classList.toggle('on', on);
+          x.setAttribute('aria-pressed', String(on));
+        });
         loadOffs();
       });
       names.appendChild(b);
@@ -1285,23 +1446,53 @@
       });
     }
   }
+  /** 休みの日を足す・消す（写しに当てはめる） */
+  function applyOff(d, date, on) {
+    var i = d.dates.indexOf(date);
+    if (on && i < 0) { d.dates.push(date); d.dates.sort(); }
+    if (!on && i >= 0) d.dates.splice(i, 1);
+  }
+  function showOffState(base) {
+    if (!base) return;
+    var d = copyOf(base);
+    state.offQ.forEach(function (op) { if (op.ym === d.ym && op.code === d.code) applyOff(d, op.date, op.on); });
+    state.offData = d;
+    if (state.ym === d.ym) renderOffs();
+  }
   function onOffClick(ev) {
     var b = ev.currentTarget;
     var date = b.getAttribute('data-date');
     var on = b.getAttribute('aria-pressed') !== 'true';
-    var ym = state.ym;
-    b.disabled = true;
-    call('setOff', [date, state.offDoctor, on], function (res) {
-      if (!res.ok) {
-        setMsg($('off-msg'), res.reason || t('offSaveFailed'), 'err');
-        if (res.closed) loadOffs(); else b.disabled = false;
-        return;
+    var d = state.offData;
+    if (!state.offQ.length) state.offServer = copyOf(d);
+    state.offQ.push({ ym: d.ym, code: state.offDoctor, date: date, on: on });
+    var view = copyOf(d);
+    applyOff(view, date, on);
+    state.offData = view;
+    setMsg($('off-msg'), '');
+    renderOffs(); // F4：押した瞬間に「休」を付ける・消す
+    pumpOffs();
+  }
+  function pumpOffs() {
+    if (state.offBusy || !state.offQ.length) return;
+    state.offBusy = true;
+    var op = state.offQ[0];
+    var done = function (res, errMsg) {
+      state.offQ.shift();
+      state.offBusy = false;
+      if (res) {
+        if (res.code === op.code) state.offServer = res;
+        if (res.editing) markAllStale();
+      } else {
+        setMsg($('off-msg'), errMsg || t('offSaveFailed'), 'err'); // 失敗：元に戻して短く知らせる
       }
-      if (state.ym !== ym) return;
-      setMsg($('off-msg'), '');
-      state.offData = res;
-      renderOffs();
-    }, function (msg) { b.disabled = false; setMsg($('off-msg'), msg, 'err'); });
+      if (state.offServer && state.offServer.code === state.offDoctor) showOffState(state.offServer);
+      pumpOffs();
+    };
+    call('setOff', [op.date, op.code, op.on], function (res) {
+      if (!res.ok) { done(null, res.reason); if (res.closed) loadOffs(); return; }
+      done(res);
+    }, function (msg) { done(null, msg); });
   }
 
   // ---- 文言を画面に入れる（index.html の data-t / data-t-ph / data-t-aria）と「？」の説明 ----

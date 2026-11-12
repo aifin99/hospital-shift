@@ -278,3 +278,6 @@ h2 { font-size: 18px; margin: 20px 0 8px; }
 .modal-col { display: flex; flex-direction: column; gap: 8px; }
 /* v9：シフトをクリア（控えめに） */
 .btn.clear-btn { width: auto; align-self: center; min-height: 44px; padding: 0 18px; background: #fff; color: var(--red); border: 1px solid #e6a59d; font-weight: normal; font-size: 15px; }
+/* v10：裏で取っている間の小さな印（文字なし） */
+.month-title { position: relative; }
+.sync { position: absolute; right: -20px; bottom: 6px; width: 12px; height: 12px; border: 2px solid #cfd6e3; border-top-color: var(--navy); border-radius: 50%; animation: spin 1s linear infinite; }
